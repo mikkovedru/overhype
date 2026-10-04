@@ -57,7 +57,8 @@ ApplicationWindow {
     property var compressionReturnFocus: null
     property bool allowClose: false
     property int lastSelected: -1
-    property int sourceSelectionBeforeTab: -1
+    // Front matter and boundary blank lines have no cursor position in the slide editor.
+    property int sourceOnlyCursor: -1
     property int dragIndex: -1
     property int dropIndex: -1
     property real dragY: 0
@@ -87,14 +88,8 @@ ApplicationWindow {
         event.accepted = true
     }
     function switchEditingFocus() {
-        if (sourceEditor.activeFocus) {
-            sourceSelectionBeforeTab = deck.selected
-            thumbnails.forceActiveFocus()
-        } else if (slideEditor.activeFocus) thumbnails.forceActiveFocus()
-        else if (markdown) {
-            if (deck.selected === sourceSelectionBeforeTab) sourceEditor.forceActiveFocus()
-            else revealSource(false, sourceFlick.contentY, true, 0, true)
-        }
+        if (slideEditor.activeFocus || sourceEditor.activeFocus) thumbnails.forceActiveFocus()
+        else if (markdown) sourceEditor.forceActiveFocus()
         else slideEditor.forceActiveFocus()
     }
     function editorKey(editor, flick, event) {
@@ -182,7 +177,16 @@ ApplicationWindow {
     }
     function openMarkdown() { setMarkdownMode(true) }
     function setMarkdownMode(value) { setMode(value ? "markdown" : "visual") }
-    function setMode(name) {
+    function slideTextPosition() {
+        // The slide editor omits boundary blank lines, but preserves indentation.
+        return deck.sourcePosition() + deck.slideSource.indexOf(deck.slideText)
+    }
+    function setMode(name) { changeMode(name, false) }
+    function changeMode(name, preserveEditing) {
+        const switchingEditors = preserveEditing && !overview && name !== "overview"
+        const editorFocused = sourceEditor.activeFocus || slideEditor.activeFocus
+        const position = switchingEditors && markdown
+            ? sourceEditor.cursorPosition - slideTextPosition() : slideEditor.cursorPosition
         focusedEditor = ""
         overview = name === "overview"
         if (!overview) editingMode = name
@@ -190,13 +194,22 @@ ApplicationWindow {
         if (overview) {
             overviewGrid.forceActiveFocus()
             Qt.callLater(overviewGrid.revealSelection)
+        } else if (switchingEditors) {
+            if (markdown) revealSource(false, sourceFlick.contentY, false,
+                sourceOnlyCursor >= 0 ? sourceOnlyCursor : slideTextPosition() + position)
+            else {
+                slideEditor.cursorPosition = Math.max(0, Math.min(slideEditor.length, position))
+                sourceOnlyCursor = slideEditor.cursorPosition === position ? -1 : sourceEditor.cursorPosition
+            }
+            const focusTarget = editorFocused ? (markdown ? sourceEditor : slideEditor) : thumbnails
+            focusTarget.forceActiveFocus()
         } else if (markdown) alignSource()
         else stage.forceActiveFocus()
     }
     // Ctrl+M flips between the overview and whichever editing mode you came from.
     property string editingMode: "visual"
     function toggleOverview() { setMode(overview ? editingMode : "overview") }
-    function toggleSource() { setMode(markdown && !overview ? "visual" : "markdown") }
+    function toggleSource() { changeMode(markdown && !overview ? "visual" : "markdown", true) }
     // Moves the selected slides by whole rows in the overview, one slide elsewhere.
     function moveSlides(delta) {
         if (Math.abs(delta) === 1) deck.moveSelection(delta)
@@ -211,11 +224,11 @@ ApplicationWindow {
         if (markdown) revealSource(false, previousY)
         else slideEditor.forceActiveFocus()
     }
-    function alignSource(focus = true, navigationDelta = 0) { revealSource(true, sourceFlick.contentY, focus, navigationDelta) }
-    function revealSource(atTop, previousY, focus = true, navigationDelta = 0, skipLeadingBlankLine = false) {
+    function alignSource(focus = true, navigationDelta = 0) { revealSource(true, sourceFlick.contentY, focus, slideTextPosition(), navigationDelta) }
+    function revealSource(atTop, previousY, focus = true, position = deck.sourcePosition(), navigationDelta = 0) {
         let start = deck.sourcePosition()
-        let cursor = start
-        let scrollPosition = start
+        let cursor = position
+        let scrollPosition = position
         let endPosition
         if (navigationDelta) {
             endPosition = deck.sourceEndPosition()
@@ -231,11 +244,6 @@ ApplicationWindow {
                 scrollPosition = sourceEditor.text.lastIndexOf("\n", start - 2) + 1
             if (sourceEditor.text.slice(scrollPosition, scrollPosition + 3) === "---")
                 ++scrollPosition
-        }
-        if (skipLeadingBlankLine && !navigationDelta) {
-            const end = sourceEditor.text.indexOf("\n", start)
-            if (end >= 0 && sourceEditor.text.slice(start, end).trim() === "") cursor = end + 1
-            scrollPosition = cursor
         }
         syncingEditor = true
         sourceEditor.cursorPosition = cursor
@@ -276,13 +284,18 @@ ApplicationWindow {
     }
     function syncEditors() {
         syncingEditor = true
-        if (sourceEditor.text !== deck.source) sourceEditor.text = deck.source
+        if (sourceEditor.text !== deck.source) {
+            sourceOnlyCursor = -1
+            sourceEditor.text = deck.source
+        }
         if (!editingSlide && slideEditor.text !== deck.slideText) slideEditor.text = deck.slideText
-        syncingEditor = false
         if (lastSelected !== deck.selected) {
+            sourceOnlyCursor = -1
             slideEditor.cursorPosition = 0
+            if (!sourceEditor.activeFocus) sourceEditor.cursorPosition = slideTextPosition()
             Qt.callLater(function() { slideScroll.contentItem.contentY = 0 })
         }
+        syncingEditor = false
     }
     Component.onCompleted: { syncEditors(); lastSelected = deck.selected; Qt.callLater(thumbnails.revealSelection); if (deck.path !== "") focusForDeck(true) }
     Connections {
@@ -319,7 +332,7 @@ ApplicationWindow {
             thumbnails.scrollBeforeReset = thumbnails.contentY - thumbnails.originY
         }
         function onModelReset() { Qt.callLater(thumbnails.revealSelection) }
-        function onOpened(existing) { Qt.callLater(function() { win.focusForDeck(existing) }) }
+        function onOpened(existing) { win.sourceOnlyCursor = -1; Qt.callLater(function() { win.focusForDeck(existing) }) }
     }
     onPresentingChanged: { if (presenting && deck.media.video && deck.media.autoplay) player.play() }
     onClosing: function(close) {
@@ -844,6 +857,7 @@ ApplicationWindow {
             }
             ToolbarIconButton {
                 objectName: "modeButton"
+                focusPolicy: Qt.NoFocus
                 iconName: win.editingMode
                 description: (win.editingMode === "markdown" ? "Markdown · Switch to Visual" : "Visual · Switch to Markdown") + " (Ctrl+.)"
                 onClicked: win.overview ? win.setMode(win.editingMode === "markdown" ? "visual" : "markdown") : win.toggleSource()
@@ -1336,6 +1350,7 @@ ApplicationWindow {
                             if (deck.count !== previousCount) win.syncEditors()
                         }
                     }
+                    onCursorPositionChanged: { if (!win.syncingEditor && activeFocus) win.sourceOnlyCursor = -1 }
                     Keys.onPressed: function(event) { win.editorKey(slideEditor, slideScroll.contentItem, event) }
                 }
             }
