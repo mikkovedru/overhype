@@ -7,7 +7,9 @@
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusVariant>
+#include <QDir>
 #include <QFont>
+#include <QFontDatabase>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPointer>
@@ -34,6 +36,11 @@ static void adoptDesktopFont() {
     font.setPointSizeF(size);
     QGuiApplication::setFont(font);
 }
+static void loadBundledFonts() {
+    const QDir fonts(QCoreApplication::applicationDirPath() + "/../fonts");
+    for (const auto &name : fonts.entryList({"*.otf", "*.ttf"}, QDir::Files))
+        QFontDatabase::addApplicationFont(fonts.filePath(name));
+}
 int main(int argc, char **argv) {
     // Hype themes itself. Qt's gtk3 platform theme only adds a use-after-free
     // inside GTK when the desktop theme changes under a running editor.
@@ -55,6 +62,7 @@ int main(int argc, char **argv) {
     app.setApplicationName("hype");
     app.setApplicationVersion("0.4.3");
     app.setDesktopFileName(qEnvironmentVariable("HYPE_DESKTOP_FILE", "hype"));
+    loadBundledFonts();
     if (command)
         return runCli(app.arguments());
     QCommandLineParser args;

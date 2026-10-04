@@ -2,7 +2,7 @@
 
 Simple presentations, written in Markdown. Big headlines, images, video, and code—with a visual editor to put everything in order.
 
-Hype is a native presentation app for Omarchy. Your presentation is a Markdown file with its media alongside it. Choose an Omarchy theme, pick a font, and export to PDF or PowerPoint.
+Hype is a native presentation app for Linux. Your presentation is a Markdown file with its media alongside it. Choose an Omarchy theme, pick a font, and export to PDF or PowerPoint.
 
 ## Install
 
@@ -13,6 +13,26 @@ omarchy pkg add hype
 ```
 
 Then open **Hype** from the app launcher, or run `hype` in a terminal.
+
+### Ubuntu 24.04 and Linux Mint 22.x
+
+Build an `amd64` `.deb` on an Ubuntu 24.04 or Mint 22.x machine with Qt 6.9 or newer installed. The package carries its own Qt libraries, QML modules, plugins, the 22 included themes, and its JetBrains Mono and Noto fonts. It uses distribution packages for system graphics libraries, FFmpeg, GNU source-highlight, and the desktop portal.
+
+Install the build tools and font inputs, and provide a Qt 6.9 or newer development installation (Ubuntu 24.04's default Qt is too old):
+
+```sh
+sudo apt install build-essential python3 dpkg-dev binutils zlib1g-dev libwebp-dev \
+  fonts-jetbrains-mono fonts-noto-core fonts-noto-mono
+```
+
+Then build and install:
+
+```sh
+HYPE_QMAKE=/path/to/Qt/6.9.3/gcc_64/bin/qmake6 ./bin/build-deb
+sudo apt install ./build/deb/hype_0.4.3-1_amd64.deb
+```
+
+The builder also finds a Qt installation under `build/qt/` automatically. It checks for the required font files and includes their license notices. To use fonts unpacked somewhere other than `/usr`, set `HYPE_FONT_ROOT` to the root of that extracted package tree. The `.deb` installs Hype under `/opt/hype`, adds the `hype` command and desktop launcher, and does not replace the system Qt installation.
 
 ## Make a presentation
 
