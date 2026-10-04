@@ -2888,7 +2888,7 @@ static void write(const QString &path, const QString &content) {
         for (int y = 0; y < detail.height(); ++y) {
             auto row = reinterpret_cast<QRgb *>(detail.scanLine(y));
             for (int x = 0; x < detail.width(); ++x)
-                row[x] = x % 2 ? qRgb(255, 0, 0) : qRgb(0, 0, 255);
+                row[x] = x % 2 ? qRgb(255, 255, 255) : qRgb(0, 0, 0);
         }
         QVERIFY(detail.save(tmp.path() + "/images/detail.png"));
         write(tmp.path() + "/talk.md", "![span](detail.png)\n");
@@ -2902,8 +2902,8 @@ static void write(const QString &path, const QString &content) {
         QCOMPARE(pdf.pageCount(), 2);
         const auto rendered = pdf.render(0, QSize(3840, 2160));
         QVERIFY(!rendered.isNull());
-        // One-pixel red/blue stripes catch the old 2560px cap: every stripe must survive at
-        // 4K. JPEG is allowed to shift each channel by a few levels, not to blur stripes.
+        // One-pixel luminance stripes catch the old 2560px cap at 4K. Use grayscale
+        // so JPEG chroma subsampling does not obscure the resolution being tested.
         for (int x = 100; x < 300; ++x) {
             const QColor got = rendered.pixelColor(x, 100), want = detail.pixelColor(x, 100);
             QVERIFY2(qAbs(got.red() - want.red()) < 24 && qAbs(got.green() - want.green()) < 24 &&
