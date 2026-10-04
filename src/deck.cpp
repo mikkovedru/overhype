@@ -345,6 +345,8 @@ void Deck::selectAt(int position) {
             select(i);
             return;
         }
+    // Front matter precedes every slide; keep the selection at the document's start.
+    select(0);
 }
 int Deck::sourcePosition() const { return m_parsed.slides.value(m_selected).start; }
 int Deck::sourceEndPosition() const { return m_parsed.slides.value(m_selected).end; }
