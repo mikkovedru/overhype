@@ -210,14 +210,14 @@ Slide navigation and selection shortcuts apply when the sidebar or preview has f
 | Ctrl+H / Ctrl+K / Ctrl+/ | Headline / code block / hidden comment |
 | ? / F1 | Show all shortcuts (F1 also works while typing) |
 | Tab / Shift+Tab | Switch between sidebar and Markdown input |
-| Arrow keys | Previous / next slide; up and down move by a row in Overview |
+| Arrow keys | In slides list. Previous / next slide; up and down move by a row in Overview |
 | Enter | Open the selected slide from Overview |
 | Page Up / Page Down | Jump five slides, or five rows in Overview |
-| Home / End | First / last slide when focused in a slides list; start / end of line in a text box |
+Home / End | First / last slide when focused in a slides list; start / end of line in a text box |
 | Ctrl+Up or Ctrl+Left | Move selected slides earlier (Ctrl+Up by a row in Overview) |
 | Ctrl+Down or Ctrl+Right | Move selected slides later (Ctrl+Down by a row in Overview) |
 | Ctrl+Page Up / Ctrl+Page Down | Move selected slides five places earlier / later, including in Overview |
-| Ctrl+Home / Ctrl+End | Move selected slides to the beginning / end |
+| Ctrl+Home / Ctrl+End | Move selected slides to the beginning / end | When either text editor has focus, Ctrl+Up/Down and Ctrl+Page Up/Down navigate one or five slides without reordering them.
 | Shift+arrows / Shift+click | Extend the slide selection |
 | Ctrl+Enter | Add a slide |
 | Ctrl+D | Duplicate selected slides |
@@ -229,7 +229,7 @@ Slide navigation and selection shortcuts apply when the sidebar or preview has f
 | Escape | Leave presentation |
 | Space | Play / pause video while presenting |
 
-The mouse wheel over the sidebar selects the previous or next slide. Home/End jumps to the first/last slide when the focus is in the slides list (Visual mode or Overview) and moves to the start/end of the line when a text box has focus. Page Up/Down scrolls a page; Ctrl+Home/End goes to the start/end of the text. Slide movement shortcuts work when the sidebar, preview, or Overview has focus; they leave the selected slides together and stop at the deck boundaries.
+e mouse wheel over the sidebar selects the previous or next slide. Home/End jumps to the first/last slide when the focus is in the slides list (Visual mode or Overview) and moves to the start/end of the line when a text box has focus. Page Up/Down scrolls a page; Ctrl+Home/End goes to the start/end of the text. Slide movement shortcuts work when the sidebar, preview, or Overview has focus; they leave the selected slides together and stop at the deck boundaries. When either text editor has focus, Ctrl+Up/Down and Ctrl+Page Up/Down navigate one or five slides without reordering them.
 
 ## Run from source
 
