@@ -1,4 +1,4 @@
-<RCC><qresource prefix="/"><file>Main.qml</file><file>AppIcon.qml</file><file>Markdown.js</file><file>format.md</file><file>skill.md</file></qresource>
+<RCC><qresource prefix="/"><file>Main.qml</file><file>SourceSelection.qml</file><file>AppIcon.qml</file><file>Markdown.js</file><file>format.md</file><file>skill.md</file></qresource>
 <qresource prefix="/">
 <file>themes/catppuccin/colors.toml</file>
 <file>themes/catppuccin-latte/colors.toml</file>

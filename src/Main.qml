@@ -224,11 +224,12 @@ ApplicationWindow {
         if (markdown) revealSource(false, previousY)
         else slideEditor.forceActiveFocus()
     }
-    function alignSource(focus = true, navigationDelta = 0) { revealSource(true, sourceFlick.contentY, focus, slideTextPosition(), navigationDelta) }
+    function alignSource(focus = true, navigationDelta = 0) { revealSource(deck.selectionCount === 1, sourceFlick.contentY, focus, slideTextPosition(), navigationDelta) }
     function revealSource(atTop, previousY, focus = true, position = deck.sourcePosition(), navigationDelta = 0) {
         let start = deck.sourcePosition()
         let cursor = position
-        let scrollPosition = position
+        // Align the complete source range while keeping the caret on visible text.
+        let scrollPosition = atTop ? start : position
         let endPosition
         if (navigationDelta) {
             endPosition = deck.sourceEndPosition()
@@ -320,7 +321,10 @@ ApplicationWindow {
         function onChanged() { win.syncSourceEditor() }
         function onSelectionChanged() {
             win.syncEditors()
-            if (win.dragIndex < 0 && win.lastSelected !== deck.selected) Qt.callLater(thumbnails.revealSelection)
+            if (win.dragIndex < 0 && win.lastSelected !== deck.selected) {
+                Qt.callLater(thumbnails.revealSelection)
+                if (win.markdown && thumbnails.activeFocus) win.alignSource(false)
+            }
             const nextVideo = deck.media.video ? deck.media.url.toString() : ""
             const changedVideo = win.lastSelected !== deck.selected || player.source.toString() !== nextVideo
             win.lastSelected = deck.selected
@@ -1371,6 +1375,46 @@ ApplicationWindow {
             Layout.fillWidth: true; Layout.fillHeight: true
             Layout.margins: win.inset; Layout.leftMargin: 0
         EditorToolbar { id: sourceBar; scope: "source."; textInset: sourceEditor.leftPadding; Layout.fillWidth: true }
+        RowLayout {
+            id: sourceSelectionBar; objectName: "sourceSelectionBar"
+            // Keep the viewport stable when the jump controls appear/disappear.
+            Layout.preferredHeight: 28; Layout.minimumHeight: 28; Layout.maximumHeight: 28
+            Layout.fillWidth: true; Layout.leftMargin: 12; Layout.rightMargin: 12
+            spacing: 8
+            Label {
+                objectName: "sourceSelectionLabel"
+                Layout.fillWidth: true; elide: Text.ElideRight
+                text: (deck.selectionCount === 1 ? "Slide " + (deck.selected + 1) :
+                    "Slides " + (deck.selectionFirst + 1) + "–" + (deck.selectionLast + 1)) + " selected" +
+                    (sourceSelection.above && sourceSelection.below ? " · continues above and below" :
+                     sourceSelection.above ? " · continues above" : sourceSelection.below ? " · continues below" : "")
+                color: win.ui.muted; font.pixelSize: 12
+                Accessible.name: text
+            }
+            RowLayout {
+                objectName: "sourceSelectionJumps"
+                visible: sourceSelection.startOutside || sourceSelection.endOutside
+                spacing: 6
+                Label {
+                    text: "Jump to selection's: "
+                    color: win.ui.muted; font.pixelSize: 12
+                }
+                ToolButton {
+                    objectName: "sourceSelectionStartButton"
+                    text: "↑ Start"; font.pixelSize: 12; implicitHeight: 28
+                    focusPolicy: Qt.NoFocus; enabled: sourceSelection.startOutside
+                    Accessible.name: "Show start of selected slides"
+                    onClicked: sourceSelection.revealBoundary(false)
+                }
+                ToolButton {
+                    objectName: "sourceSelectionEndButton"
+                    text: "End ↓"; font.pixelSize: 12; implicitHeight: 28
+                    focusPolicy: Qt.NoFocus; enabled: sourceSelection.endOutside
+                    Accessible.name: "Show end of selected slides"
+                    onClicked: sourceSelection.revealBoundary(true)
+                }
+            }
+        }
         Rectangle {
             objectName: "sourceEditorFrame"
             Layout.fillWidth: true; Layout.fillHeight: true
@@ -1388,6 +1432,14 @@ ApplicationWindow {
                         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                     target: null
                     onWheel: function(event) { win.scrollEditor(sourceFlick, event) }
+                }
+                SourceSelection {
+                    id: sourceSelection; objectName: "sourceSelection"
+                    parent: sourceFlick; anchors.fill: parent; z: 1
+                    presentation: deck; editor: sourceEditor; flickable: sourceFlick
+                    selectionFocused: thumbnails.activeFocus
+                    inactiveStroke: win.ui.inactiveSelection
+                    accent: win.ui.accent; rounding: win.rounding
                 }
                 TextArea.flickable: TextArea {
                 id: sourceEditor; objectName: "sourceEditor"
