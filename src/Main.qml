@@ -10,7 +10,7 @@ ApplicationWindow {
     id: win
     width: 1400; height: 900; minimumWidth: 900; minimumHeight: 600
     visible: true
-    title: deck.title + (deck.dirty ? " •" : "") + " — Hype"
+    title: deck.home ? "Home — Hype" : deck.title + (deck.dirty ? " •" : "") + " — Hype"
     AppTheme { id: appTheme }
     readonly property var ui: appTheme.colors
     readonly property int rounding: appTheme.rounding
@@ -25,7 +25,7 @@ ApplicationWindow {
     property bool markdown: false
     property bool overview: false
     readonly property string mode: overview ? "overview" : markdown ? "markdown" : "visual"
-    readonly property bool canFormat: !popupOpen && !deck.compressingImage && !presenting && !overview
+    readonly property bool canFormat: !deck.home && !popupOpen && !deck.compressingImage && !presenting && !overview
     readonly property int rowStep: overview && !presenting ? overviewGrid.columns : 1
     readonly property int inset: 20
     property string flash: ""
@@ -158,12 +158,18 @@ ApplicationWindow {
         if (markdown) revealSource(false, sourceFlick.contentY)
         else slideEditor.forceActiveFocus()
     }
+    function initializeEditor(name) {
+        if (deck.home) return
+        setMode(name)
+        focusForDeck(deck.path !== "")
+    }
     function openMarkdown() { setMarkdownMode(true) }
     function setMarkdownMode(value) { setMode(value ? "markdown" : "visual") }
     function setMode(name) {
         overview = name === "overview"
         if (!overview) editingMode = name
         markdown = name === "markdown"
+        deck.rememberEditorMode(name)
         if (overview) {
             overviewGrid.forceActiveFocus()
             Qt.callLater(overviewGrid.revealSelection)
@@ -219,7 +225,7 @@ ApplicationWindow {
             Qt.callLater(function() { slideScroll.contentItem.contentY = 0 })
         }
     }
-    Component.onCompleted: { syncEditors(); lastSelected = deck.selected; Qt.callLater(thumbnails.revealSelection); if (deck.path !== "") focusForDeck(true) }
+    Component.onCompleted: { syncEditors(); lastSelected = deck.selected; Qt.callLater(thumbnails.revealSelection); if (deck.home) homeNew.forceActiveFocus(); else focusForDeck(deck.path !== "") }
     Connections {
         target: deck
         function onCompressingImageChanged() {
@@ -254,7 +260,15 @@ ApplicationWindow {
             thumbnails.scrollBeforeReset = thumbnails.contentY - thumbnails.originY
         }
         function onModelReset() { Qt.callLater(thumbnails.revealSelection) }
-        function onOpened(existing) { Qt.callLater(function() { win.focusForDeck(existing) }) }
+        function onOpened(existing) { win.setMode(deck.editorMode); Qt.callLater(function() { win.focusForDeck(existing) }) }
+    }
+    property bool lastHome: deck.home
+    Connections {
+        target: deck
+        function onHomeChanged() {
+            if (deck.home && !win.lastHome) { if (win.presenting) win.togglePresent(); player.stop(); Qt.callLater(function() { homeNew.forceActiveFocus() }) }
+            win.lastHome = deck.home
+        }
     }
     onPresentingChanged: { if (presenting && deck.media.video && deck.media.autoplay) player.play() }
     onClosing: function(close) {
@@ -400,49 +414,120 @@ ApplicationWindow {
             }
         }
     }
-    Shortcut { sequences: ["Tab", "Shift+Tab"]; enabled: !win.popupOpen && !deck.compressingImage && !win.presenting && (stage.activeFocus || thumbnails.activeFocus); onActivated: win.switchEditingFocus() }
+    Shortcut { sequences: ["Tab", "Shift+Tab"]; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && !win.presenting && (stage.activeFocus || thumbnails.activeFocus); onActivated: win.switchEditingFocus() }
     Shortcut { enabled: !win.popupOpen && !deck.compressingImage; sequences: [StandardKey.Open]; onActivated: deck.openDialog() }
-    Shortcut { enabled: !win.popupOpen && !deck.compressingImage; sequences: [StandardKey.Save]; onActivated: deck.save() }
-    Shortcut { enabled: !win.popupOpen && !deck.compressingImage; sequences: [StandardKey.SaveAs]; onActivated: deck.saveAs() }
-    Shortcut { sequence: "Ctrl+E"; enabled: !win.popupOpen && !deck.compressingImage && !win.presenting && !deck.exporting; onActivated: deck.exportDialog("pdf") }
-    Shortcut { sequence: "Ctrl+Shift+E"; enabled: !win.popupOpen && !deck.compressingImage && !win.presenting && !deck.exporting; onActivated: deck.exportDialog("pptx") }
-    Shortcut { sequences: ["?", "Shift+?"]; enabled: !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: shortcutsOverlay.open() }
-    Shortcut { sequence: "F1"; enabled: !win.popupOpen && !deck.compressingImage && !win.presenting; onActivated: shortcutsOverlay.open() }
-    Shortcut { sequence: "Ctrl+M"; enabled: !win.popupOpen && !deck.compressingImage && (!win.presenting); onActivated: win.toggleOverview() }
-    Shortcut { sequence: "Ctrl+."; enabled: !win.popupOpen && !deck.compressingImage && (!win.presenting); onActivated: win.toggleSource() }
-    Shortcut { sequence: "Ctrl+B"; enabled: win.canFormat; onActivated: win.formatSlide("bold") }
-    Shortcut { sequence: "Ctrl+I"; enabled: win.canFormat; onActivated: win.formatSlide("italic") }
-    Shortcut { sequence: "Ctrl+U"; enabled: win.canFormat; onActivated: win.formatSlide("underline") }
-    Shortcut { sequence: "Ctrl+H"; enabled: win.canFormat; onActivated: win.formatSlide("headline") }
-    Shortcut { sequence: "Ctrl+K"; enabled: win.canFormat; onActivated: win.formatSlide("code") }
-    Shortcut { sequence: "Ctrl+/"; enabled: win.canFormat; onActivated: win.formatSlide("comment") }
-    Shortcut { sequences: ["Return", "Enter"]; enabled: !win.popupOpen && !deck.compressingImage && win.overview && !win.presenting; onActivated: win.focusMarkdown() }
+    Shortcut { enabled: !deck.home && !win.popupOpen && !deck.compressingImage; sequences: [StandardKey.Save]; onActivated: deck.save() }
+    Shortcut { enabled: !deck.home && !win.popupOpen && !deck.compressingImage; sequences: [StandardKey.SaveAs]; onActivated: deck.saveAs() }
+    Shortcut { sequence: "Ctrl+E"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && !win.presenting && !deck.exporting; onActivated: deck.exportDialog("pdf") }
+    Shortcut { sequence: "Ctrl+Shift+E"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && !win.presenting && !deck.exporting; onActivated: deck.exportDialog("pptx") }
+    Shortcut { sequences: ["?", "Shift+?"]; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: shortcutsOverlay.open() }
+    Shortcut { sequence: "F1"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && !win.presenting; onActivated: shortcutsOverlay.open() }
+    Shortcut { sequence: "Ctrl+M"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && (!win.presenting); onActivated: win.toggleOverview() }
+    Shortcut { sequence: "Ctrl+."; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && (!win.presenting); onActivated: win.toggleSource() }
+    Shortcut { sequence: "Ctrl+B"; enabled: !deck.home && win.canFormat; onActivated: win.formatSlide("bold") }
+    Shortcut { sequence: "Ctrl+I"; enabled: !deck.home && win.canFormat; onActivated: win.formatSlide("italic") }
+    Shortcut { sequence: "Ctrl+U"; enabled: !deck.home && win.canFormat; onActivated: win.formatSlide("underline") }
+    Shortcut { sequence: "Ctrl+H"; enabled: !deck.home && win.canFormat; onActivated: win.formatSlide("headline") }
+    Shortcut { sequence: "Ctrl+K"; enabled: !deck.home && win.canFormat; onActivated: win.formatSlide("code") }
+    Shortcut { sequence: "Ctrl+/"; enabled: !deck.home && win.canFormat; onActivated: win.formatSlide("comment") }
+    Shortcut { sequences: ["Return", "Enter"]; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && win.overview && !win.presenting; onActivated: win.focusMarkdown() }
     Shortcut { enabled: !win.popupOpen && !deck.compressingImage; sequence: "Ctrl+N"; onActivated: deck.newDeck() }
-    Shortcut { enabled: !win.popupOpen && !deck.compressingImage; sequences: ["F5", "Ctrl+Space"]; autoRepeat: false; onActivated: win.togglePresent() }
-    Shortcut { sequence: "Escape"; enabled: !win.popupOpen && !deck.compressingImage && (win.presenting); onActivated: win.togglePresent() }
-    Shortcut { sequence: "Ctrl+Z"; enabled: !win.popupOpen && !deck.compressingImage && (!slideEditor.activeFocus && !sourceEditor.activeFocus); onActivated: deck.undo() }
-    Shortcut { sequence: "Ctrl+Shift+Z"; enabled: !win.popupOpen && !deck.compressingImage && (!slideEditor.activeFocus && !sourceEditor.activeFocus); onActivated: deck.redo() }
-    Shortcut { sequence: "Ctrl+D"; enabled: !win.popupOpen && !deck.compressingImage && (!slideEditor.activeFocus && !sourceEditor.activeFocus); onActivated: deck.duplicateSlide() }
-    Shortcut { enabled: !win.popupOpen && !deck.compressingImage; sequence: "Ctrl+Return"; onActivated: { win.addSlide() } }
-    Shortcut { sequence: "Delete"; enabled: !win.popupOpen && !deck.compressingImage && (!slideEditor.activeFocus && !sourceEditor.activeFocus); onActivated: deck.deleteSlide() }
-    Shortcut { sequence: "Right"; enabled: !win.popupOpen && !deck.compressingImage && (win.presenting || (!slideEditor.activeFocus && !sourceEditor.activeFocus)); onActivated: deck.select(deck.selected + 1) }
-    Shortcut { sequence: "Ctrl+Right"; enabled: !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: win.moveSlides(1) }
-    Shortcut { sequence: "Shift+Right"; enabled: !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: { deck.extendSelection(deck.selected + 1); if (win.markdown) win.alignSource(false) } }
-    Shortcut { sequence: "Down"; enabled: !win.popupOpen && !deck.compressingImage && (win.presenting || (!slideEditor.activeFocus && !sourceEditor.activeFocus)); onActivated: deck.select(deck.selected + (win.presenting ? 1 : win.rowStep)) }
-    Shortcut { sequence: "Ctrl+Down"; enabled: !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: win.moveSlides(win.rowStep) }
-    Shortcut { sequence: "Shift+Down"; enabled: !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: { deck.extendSelection(deck.selected + win.rowStep); if (win.markdown) win.alignSource(false) } }
-    Shortcut { sequence: "Left"; enabled: !win.popupOpen && !deck.compressingImage && (win.presenting || (!slideEditor.activeFocus && !sourceEditor.activeFocus)); onActivated: deck.select(deck.selected + -1) }
-    Shortcut { sequence: "Ctrl+Left"; enabled: !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: win.moveSlides(-1) }
-    Shortcut { sequence: "Shift+Left"; enabled: !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: { deck.extendSelection(deck.selected + -1); if (win.markdown) win.alignSource(false) } }
-    Shortcut { sequence: "Up"; enabled: !win.popupOpen && !deck.compressingImage && (win.presenting || (!slideEditor.activeFocus && !sourceEditor.activeFocus)); onActivated: deck.select(deck.selected + (win.presenting ? -1 : -win.rowStep)) }
-    Shortcut { sequence: "Ctrl+Up"; enabled: !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: win.moveSlides(-win.rowStep) }
-    Shortcut { sequence: "Shift+Up"; enabled: !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: { deck.extendSelection(deck.selected + -win.rowStep); if (win.markdown) win.alignSource(false) } }
-    Shortcut { sequence: "PgDown"; enabled: !win.popupOpen && !deck.compressingImage && (win.presenting || (!slideEditor.activeFocus && !sourceEditor.activeFocus)); onActivated: deck.select(deck.selected + 5 * win.rowStep) }
-    Shortcut { sequence: "PgUp"; enabled: !win.popupOpen && !deck.compressingImage && (win.presenting || (!slideEditor.activeFocus && !sourceEditor.activeFocus)); onActivated: deck.select(deck.selected - 5 * win.rowStep) }
-    Shortcut { sequence: "Home"; enabled: !win.popupOpen && !deck.compressingImage && (win.presenting || (!win.markdown && !slideEditor.activeFocus)); onActivated: deck.select(0) }
-    Shortcut { sequence: "End"; enabled: !win.popupOpen && !deck.compressingImage && (win.presenting || (!win.markdown && !slideEditor.activeFocus)); onActivated: deck.select(deck.count - 1) }
-    Shortcut { sequence: "Space"; enabled: !win.popupOpen && !deck.compressingImage && win.presenting && (deck.media.video || animation.active); autoRepeat: false; onActivated: { if (animation.item) animation.item.paused = !animation.item.paused; else win.toggleVideo() } }
-    Shortcut { sequence: "Ctrl+V"; enabled: !win.popupOpen && !deck.compressingImage && (!slideEditor.activeFocus && !sourceEditor.activeFocus); onActivated: deck.pasteMedia() }
+    Shortcut { enabled: !deck.home && !win.popupOpen && !deck.compressingImage; sequences: ["F5", "Ctrl+Space"]; autoRepeat: false; onActivated: win.togglePresent() }
+    Shortcut { sequence: "Escape"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && (win.presenting); onActivated: win.togglePresent() }
+    Shortcut { sequence: "Ctrl+Z"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && (!slideEditor.activeFocus && !sourceEditor.activeFocus); onActivated: deck.undo() }
+    Shortcut { sequence: "Ctrl+Shift+Z"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && (!slideEditor.activeFocus && !sourceEditor.activeFocus); onActivated: deck.redo() }
+    Shortcut { sequence: "Ctrl+D"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && (!slideEditor.activeFocus && !sourceEditor.activeFocus); onActivated: deck.duplicateSlide() }
+    Shortcut { enabled: !deck.home && !win.popupOpen && !deck.compressingImage; sequence: "Ctrl+Return"; onActivated: { win.addSlide() } }
+    Shortcut { sequence: "Delete"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && (!slideEditor.activeFocus && !sourceEditor.activeFocus); onActivated: deck.deleteSlide() }
+    Shortcut { sequence: "Right"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && (win.presenting || (!slideEditor.activeFocus && !sourceEditor.activeFocus)); onActivated: deck.select(deck.selected + 1) }
+    Shortcut { sequence: "Ctrl+Right"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: win.moveSlides(1) }
+    Shortcut { sequence: "Shift+Right"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: { deck.extendSelection(deck.selected + 1); if (win.markdown) win.alignSource(false) } }
+    Shortcut { sequence: "Down"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && (win.presenting || (!slideEditor.activeFocus && !sourceEditor.activeFocus)); onActivated: deck.select(deck.selected + (win.presenting ? 1 : win.rowStep)) }
+    Shortcut { sequence: "Ctrl+Down"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: win.moveSlides(win.rowStep) }
+    Shortcut { sequence: "Shift+Down"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: { deck.extendSelection(deck.selected + win.rowStep); if (win.markdown) win.alignSource(false) } }
+    Shortcut { sequence: "Left"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && (win.presenting || (!slideEditor.activeFocus && !sourceEditor.activeFocus)); onActivated: deck.select(deck.selected + -1) }
+    Shortcut { sequence: "Ctrl+Left"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: win.moveSlides(-1) }
+    Shortcut { sequence: "Shift+Left"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: { deck.extendSelection(deck.selected + -1); if (win.markdown) win.alignSource(false) } }
+    Shortcut { sequence: "Up"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && (win.presenting || (!slideEditor.activeFocus && !sourceEditor.activeFocus)); onActivated: deck.select(deck.selected + (win.presenting ? -1 : -win.rowStep)) }
+    Shortcut { sequence: "Ctrl+Up"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: win.moveSlides(-win.rowStep) }
+    Shortcut { sequence: "Shift+Up"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && !win.presenting && !slideEditor.activeFocus && !sourceEditor.activeFocus; onActivated: { deck.extendSelection(deck.selected + -win.rowStep); if (win.markdown) win.alignSource(false) } }
+    Shortcut { sequence: "PgDown"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && (win.presenting || (!slideEditor.activeFocus && !sourceEditor.activeFocus)); onActivated: deck.select(deck.selected + 5 * win.rowStep) }
+    Shortcut { sequence: "PgUp"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && (win.presenting || (!slideEditor.activeFocus && !sourceEditor.activeFocus)); onActivated: deck.select(deck.selected - 5 * win.rowStep) }
+    Shortcut { sequence: "Home"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && (win.presenting || (!win.markdown && !slideEditor.activeFocus)); onActivated: deck.select(0) }
+    Shortcut { sequence: "End"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && (win.presenting || (!win.markdown && !slideEditor.activeFocus)); onActivated: deck.select(deck.count - 1) }
+    Shortcut { sequence: "Space"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && win.presenting && (deck.media.video || animation.active); autoRepeat: false; onActivated: { if (animation.item) animation.item.paused = !animation.item.paused; else win.toggleVideo() } }
+    Shortcut { sequence: "Ctrl+V"; enabled: !deck.home && !win.popupOpen && !deck.compressingImage && (!slideEditor.activeFocus && !sourceEditor.activeFocus); onActivated: deck.pasteMedia() }
+    Shortcut { sequence: "Ctrl+Shift+H"; enabled: !win.popupOpen && !deck.home; onActivated: deck.showHome() }
+    ScrollView {
+        id: homePage; objectName: "homePage"
+        visible: deck.home; anchors.fill: parent; clip: true
+        contentWidth: availableWidth
+        readonly property var recentEntries: visible ? deck.recentPresentations : []
+        readonly property var draftEntries: visible ? deck.unfinishedDrafts : []
+        readonly property var continueEntry: visible ? deck.continuation : ({})
+        DropArea { anchors.fill: parent; onDropped: function(drop) { if (drop.hasUrls && drop.urls.length) deck.openDroppedPresentation(drop.urls[0]) } }
+        ColumnLayout {
+            width: Math.min(740, homePage.availableWidth - 80); x: (homePage.availableWidth - width) / 2; spacing: 16
+            Item { Layout.preferredHeight: 40 }
+            Label { text: "Hype"; font.pixelSize: 30; font.bold: true; color: win.ui.accent }
+            Label { text: "Make room for your next idea."; font.pixelSize: 17; color: win.ui.muted }
+            Label { objectName: "homeError"; visible: text !== ""; text: deck.status; Layout.fillWidth: true; wrapMode: Text.Wrap; color: win.ui.foreground }
+            Button { objectName: "homeReturn"; visible: deck.hasActive; text: "Return to " + deck.title; onClicked: deck.resumeActive() }
+            RowLayout {
+                spacing: 12
+                Button { id: homeNew; objectName: "homeNew"; text: "New presentation"; highlighted: true; onClicked: deck.newDeck() }
+                Button { objectName: "homeOpen"; text: "Open…"; onClicked: deck.openDialog() }
+            }
+            Frame {
+                Layout.fillWidth: true; visible: Object.keys(homePage.continueEntry).length > 0
+                background: Rectangle { color: win.ui.background; border.color: win.ui.border; radius: win.softRadius }
+                ColumnLayout {
+                    anchors.fill: parent; spacing: 6
+                    Label { text: "CONTINUE"; font.pixelSize: 11; font.letterSpacing: 1; color: win.ui.muted }
+                    Button { objectName: "homeContinue"; Layout.fillWidth: true; text: homePage.continueEntry.title || "Last presentation"; contentItem: Label { text: parent.text; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter } onClicked: deck.continuePresentation() }
+                    Label { text: (homePage.continueEntry.path || "Draft saved locally") + " · Slide " + (homePage.continueEntry.slide || 1); Layout.fillWidth: true; elide: Text.ElideMiddle; color: win.ui.muted }
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Label { text: "Recent presentations"; font.bold: true; Layout.fillWidth: true }
+                Button { objectName: "homeClearRecents"; text: "Clear"; visible: homePage.recentEntries.length > 0; onClicked: deck.clearRecents() }
+            }
+            Label { text: deck.rememberRecents ? "Opened presentations will appear here." : "Recent history is turned off."; visible: homePage.recentEntries.length === 0; color: win.ui.muted }
+            Repeater {
+                model: homePage.recentEntries
+                RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true; spacing: 8
+                    Button { text: modelData.title; Layout.preferredWidth: 190; contentItem: Label { text: parent.text; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter } onClicked: deck.openPresentation(modelData.path); Accessible.name: "Open " + modelData.title }
+                    ColumnLayout {
+                        Layout.fillWidth: true; spacing: 2
+                        Label { text: modelData.path; elide: Text.ElideMiddle; Layout.fillWidth: true; color: win.ui.muted }
+                        Label { text: modelData.opened ? "Opened " + new Date(modelData.opened).toLocaleString() : "Previously opened"; font.pixelSize: 11; color: win.ui.muted }
+                    }
+                    Button { text: "Locate…"; onClicked: deck.locateRecent(modelData.path); Accessible.name: "Locate " + modelData.title }
+                    Button { text: "Remove"; onClicked: deck.removeRecent(modelData.path); Accessible.name: "Remove " + modelData.title + " from recent history" }
+                }
+            }
+            Label { text: "Unfinished drafts"; font.bold: true; visible: homePage.draftEntries.length > 0; Layout.topMargin: 8 }
+            Repeater {
+                model: homePage.draftEntries
+                RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    Button { text: modelData.title; onClicked: deck.openDraft(modelData.identity, modelData.path); Accessible.name: "Recover " + modelData.title }
+                    Label { text: modelData.path || "Saved locally · choose a file with Ctrl+S"; color: win.ui.muted; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                }
+            }
+            RowLayout {
+                Layout.topMargin: 12
+                Label { text: "On startup"; color: win.ui.muted }
+                ComboBox { objectName: "startupPreference"; model: ["Home", "Continue last presentation"]; currentIndex: deck.continueOnStartup ? 1 : 0; onActivated: deck.continueOnStartup = currentIndex === 1 }
+                CheckBox { objectName: "rememberRecents"; text: "Remember recent presentations"; checked: deck.rememberRecents; onClicked: deck.rememberRecents = checked }
+            }
+            Item { Layout.preferredHeight: 40 }
+        }
+    }
     component ToolbarIconButton: ToolButton {
         id: toolbarButton
         required property string iconName
@@ -626,7 +711,7 @@ ApplicationWindow {
     }
     header: ToolBar {
         id: topBar
-        visible: !win.presenting; height: visible ? 60 : 0
+        visible: !win.presenting && !deck.home; height: visible ? 60 : 0
         background: Rectangle {
             color: win.ui.panel
             Rectangle { x: win.inset; width: parent.width - 2 * win.inset; height: 1; anchors.bottom: parent.bottom; color: win.ui.border }
@@ -781,6 +866,7 @@ ApplicationWindow {
                 AppMenu {
                     id: fileMenu; objectName: "fileMenu"
                     y: parent.height + 4
+                    AppMenuItem { text: "Home"; hint: "Ctrl+Shift+H"; onTriggered: deck.showHome() }
                     AppMenuItem { text: "New presentation"; hint: "Ctrl+N"; onTriggered: deck.newDeck() }
                     AppMenuItem { text: "Open…"; hint: "Ctrl+O"; onTriggered: deck.openDialog() }
                     AppMenuSeparator {}
@@ -862,6 +948,7 @@ ApplicationWindow {
         AppMenuItem { text: deck.selectionCount > 1 ? "Delete slides" : "Delete slide"; hint: "Del"; destructive: true; onTriggered: deck.deleteSlide() }
     }
     RowLayout {
+        visible: !deck.home
         anchors.fill: parent; spacing: 0
         GridView {
             id: overviewGrid; objectName: "overviewGrid"

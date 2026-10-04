@@ -167,7 +167,7 @@ hype themes
 
 `check` reports all problems at once, such as missing media, invalid layout options, and unfinished code fences, and warns when a slide holds so much text that it shrinks below a readable size. `render --slide` writes a PNG even for a slide with problems, showing them on a banner, so you can look at what went wrong. Add `--json` to any command for structured output, and `--width` to `render` for another size. Commands exit 0 on success and 1 on failure, with errors on stderr.
 
-`hype` alone lists the commands, and `hype open` starts the editor. `hype help format` prints the whole slide format, from front matter to media options, in a form an agent can read once and work from. `hype help <command>` lists a command's options.
+`hype` opens Home (or continues your last presentation if selected in Home preferences). `hype open` explicitly continues the last presentation, `hype --home` opens Home, and `hype --new` starts a fresh untitled presentation. Use `hype help` to list commands. `hype help format` prints the whole slide format, from front matter to media options, in a form an agent can read once and work from. `hype help <command>` lists a command's options.
 
 To teach your coding agents about Hype, run `hype skill install`. It copies a short skill to `~/.agents/skills/hype/`, where Codex finds it, and links it into `~/.claude/skills/` for Claude Code. The skill points the agent at `hype help format`, so it stays current as Hype is upgraded. `hype skill` prints it instead.
 

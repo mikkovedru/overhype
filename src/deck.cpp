@@ -30,6 +30,7 @@
 #include <QSet>
 #include <QScopeGuard>
 #include <QSettings>
+#include <QUuid>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QThreadPool>
@@ -137,6 +138,7 @@ QString setScalar(QString header, const QString &key, const QString &value) {
 }
 Deck::Deck(QObject *parent, const QString &exportProgram) : QAbstractListModel(parent),
     m_exportProgram(exportProgram.isEmpty() ? QCoreApplication::applicationFilePath() : exportProgram) {
+    m_draftId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     discoverThemes();
     m_source = "---\ntitle: Untitled\ntheme: tokyo-night\n---\n\n# Your next idea\n";
     m_parsed = parseDeck(m_source);
@@ -148,7 +150,7 @@ Deck::Deck(QObject *parent, const QString &exportProgram) : QAbstractListModel(p
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, &m_reloadTimer, qOverload<>(&QTimer::start));
     connect(&m_reloadTimer, &QTimer::timeout, this, [this] {
         QFile file(m_path);
-        if (m_path.isEmpty())
+        if (m_home || m_path.isEmpty())
             return;
         if (!file.open(QIODevice::ReadOnly)) {
             m_externalChange = true;
@@ -638,8 +640,10 @@ bool Deck::reopenLastPresentation() {
     const QString path =
         settings.value("files/lastRecoveryDocument", settings.value("files/lastPresentation"))
             .toString();
-    if (path.isEmpty())
+    if (path.isEmpty()) {
+        m_draftId = settings.value("files/lastDraftId", "legacy-untitled").toString();
         return false;
+    }
     if (QFileInfo(path).isFile())
         return loadPath(path);
     if (!settings.contains("files/lastRecoveryDocument"))
@@ -660,6 +664,8 @@ bool Deck::loadPath(const QString &path, bool remember) {
     }
     QString s = QString::fromUtf8(f.readAll());
     m_path = QFileInfo(path).absoluteFilePath();
+    m_home = false;
+    m_rememberFile = remember;
     apply(s, 0, false);
     m_saved = s;
     m_undo.clear();
@@ -673,6 +679,8 @@ bool Deck::loadPath(const QString &path, bool remember) {
     recoverDraft();
     if (!m_recoveryDirectory.isEmpty())
         checkpoint();
+    if (m_guiSession) recordRecent();
+    emit homeChanged();
     return true;
 }
 bool Deck::validateStructure(const QString &operation) {
@@ -690,6 +698,7 @@ bool Deck::validateStructure(const QString &operation) {
     return true;
 }
 bool Deck::savePath(const QString &path) {
+    const QString previousMode = editorMode();
     if (!validateStructure("save"))
         return false;
     if (QFileInfo(path).absoluteFilePath() == m_path && m_externalChange) {
@@ -740,10 +749,12 @@ bool Deck::savePath(const QString &path) {
     m_path = QFileInfo(path).absoluteFilePath();
     m_saved = m_source;
     m_externalChange = false;
+    rememberEditorMode(previousMode);
     watch();
     emit changed();
     setStatus("Saved");
-    rememberPresentation(m_path);
+    if (m_rememberFile) rememberPresentation(m_path);
+    if (m_guiSession) recordRecent();
     if (!m_recoveryDirectory.isEmpty())
         checkpoint();
     return true;
@@ -859,10 +870,14 @@ bool Deck::saveCopyPath(const QString &path) {
 void Deck::newDeck() {
     if (!confirmDiscard())
         return;
+    m_home = false;
+    m_draftId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_path.clear();
     m_saved.clear();
     m_externalChange = false;
     apply("---\ntitle: Untitled\ntheme: tokyo-night\n---\n\n# Your next idea\n", 0);
+    m_saved = m_source;
+    emit changed();
     m_undo.clear();
     m_redo.clear();
     watch();
@@ -870,6 +885,7 @@ void Deck::newDeck() {
         m_checkpointSource.clear();
         checkpoint();
     }
+    emit homeChanged();
     emit opened(false);
 }
 void Deck::importDialog() {

@@ -8,6 +8,7 @@
 #include <QApplication>
 #include <QAbstractTextDocumentLayout>
 #include <QClipboard>
+#include <QCryptographicHash>
 #include <QDBusArgument>
 #include <QDBusConnection>
 #include <QDBusMessage>
@@ -79,6 +80,26 @@ class TestFilePortal : public QDBusVirtualObject {
     }
 };
 
+// A real window fixture for the Home and startup regressions.
+struct HomeSession {
+    Deck deck;
+    QQmlApplicationEngine engine;
+    QQuickWindow *window = nullptr;
+    Thumbnails *provider = nullptr;
+    explicit HomeSession(const QString &source) {
+        QQuickStyle::setStyle("Basic");
+        qmlRegisterType<SlideItem>("Hype", 1, 0, "SlideCanvas");
+        qmlRegisterType<AppTheme>("Hype", 1, 0, "AppTheme");
+        deck.editSource(source);
+        engine.rootContext()->setContextProperty("deck", &deck);
+        provider = new Thumbnails(&deck);
+        engine.addImageProvider("slides", provider);
+        engine.load(QUrl("qrc:/Main.qml"));
+        if (!engine.rootObjects().isEmpty()) window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    }
+    ~HomeSession() { provider->shutdown(); }
+};
+
 class HypeTests : public QObject {
     Q_OBJECT
     QTemporaryDir settingsDirectory;
@@ -96,6 +117,7 @@ static void write(const QString &path, const QString &content) {
     void initTestCase() {
         QVERIFY(settingsDirectory.isValid());
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsDirectory.path());
+        qputenv("XDG_STATE_HOME", (settingsDirectory.path() + "/state").toUtf8());
     }
     void portalFileDialogs() {
         if (!qEnvironmentVariableIsSet("HYPE_PORTAL_TESTS"))
@@ -223,6 +245,8 @@ static void write(const QString &path, const QString &content) {
     void reopensLastPresentation() {
         QSettings settings(QSettings::IniFormat, QSettings::UserScope, "hype", "hype");
         settings.remove("files/lastPresentation");
+        settings.remove("files/lastRecoveryDocument");
+        settings.remove("files/lastDraftId");
         Deck first;
         const QString initial = first.source();
         QVERIFY(!first.reopenLastPresentation());
@@ -352,6 +376,107 @@ static void write(const QString &path, const QString &content) {
         QVERIFY(original.open(QIODevice::ReadOnly));
         QCOMPARE(original.readAll(), QByteArray("# Keep me\n"));
         QVERIFY(deck.dirty());
+    }
+    void homePreservesStateAndDraftIdentity() {
+        QTemporaryDir files;
+        QSettings settings(QSettings::IniFormat, QSettings::UserScope, "hype", "hype");
+        settings.setValue("files/lastRecoveryDocument", "unchanged");
+        Deck deck; deck.enableGuiSession(); deck.enableAutosave(files.filePath("recovery"));
+        QVERIFY(deck.home()); QVERIFY(deck.flushAutosave());
+        QCOMPARE(settings.value("files/lastRecoveryDocument").toString(), QString("unchanged"));
+        QVERIFY(!QDir(files.filePath("recovery")).exists());
+        deck.newDeck(); const QString first = deck.draftIdentity();
+        QVERIFY(!deck.home()); QVERIFY(!deck.dirty()); QCOMPARE(deck.count(), 1);
+        QVERIFY(deck.flushAutosave()); QVERIFY(!QDir(files.filePath("recovery")).exists());
+        deck.editSlide("# First unfinished idea"); QVERIFY(deck.showHome());
+        QVERIFY(deck.hasActive()); QCOMPARE(deck.unfinishedDrafts().size(), 1);
+        deck.newDeck(); const QString second = deck.draftIdentity(); QVERIFY(first != second);
+        deck.editSlide("# Second unfinished idea"); QVERIFY(deck.showHome());
+        QCOMPARE(deck.unfinishedDrafts().size(), 2);
+        QVERIFY(deck.openDraft(first)); QCOMPARE(deck.slideText(), QString("# First unfinished idea"));
+        deck.rememberEditorMode("markdown");
+        QVERIFY(deck.savePath(files.filePath("first.md"))); QCOMPARE(deck.editorMode(), QString("markdown"));
+        Deck capture; capture.enableGuiSession(false); QVERIFY(capture.loadPath(files.filePath("first.md"), false));
+        QCOMPARE(capture.editorMode(), QString("markdown")); // Captures read preferences without recording them.
+        QVERIFY(deck.showHome());
+        QCOMPARE(deck.unfinishedDrafts().size(), 1);
+        QVERIFY(deck.openDraft(second)); QCOMPARE(deck.slideText(), QString("# Second unfinished idea"));
+        QVERIFY(deck.showHome()); deck.resumeActive(); QCOMPARE(deck.draftIdentity(), second);
+    }
+    void homeRecentsPersistenceAndPrivacy() {
+        QTemporaryDir files;
+        Deck deck; deck.enableGuiSession(); deck.enableAutosave(files.filePath("recovery")); deck.clearRecents();
+        deck.setRememberRecents(true);
+        const QString path = files.filePath("recent.md"); write(path, "# Recent\n");
+        QVERIFY(deck.openPresentation(path)); QCOMPARE(deck.recentPresentations().size(), 1);
+        deck.editSlide("# Current edits"); QVERIFY(deck.openPresentation(path));
+        QCOMPARE(deck.slideText(), QString("# Current edits")); deck.undo(); QCOMPARE(deck.slideText(), QString("# Recent"));
+        QVERIFY(deck.showHome());
+        Deck next; next.enableGuiSession(); QCOMPARE(next.recentPresentations().size(), 1);
+        QVERIFY(QFile::remove(path)); QVERIFY(!next.openPresentation(path)); QVERIFY(next.home());
+        QVERIFY(next.status().contains("Could not open")); QCOMPARE(deck.recentPresentations().size(), 1);
+        deck.removeRecent(path); QVERIFY(deck.recentPresentations().isEmpty()); QVERIFY(deck.continuation().isEmpty());
+        deck.setRememberRecents(false); write(path, "# Private\n"); QVERIFY(deck.openPresentation(path));
+        QVERIFY(deck.recentPresentations().isEmpty()); deck.setRememberRecents(true); QVERIFY(deck.recentPresentations().isEmpty());
+        QVERIFY(deck.showHome()); deck.clearRecents();
+    }
+    void homeLegacyAndDamagedDraftDiscovery() {
+        QTemporaryDir files;
+        const QString recovery = files.filePath("recovery");
+        QString identity;
+        { Deck deck; deck.enableAutosave(recovery); identity = deck.draftIdentity(); deck.editSlide("# Preserved draft"); QVERIFY(deck.flushAutosave()); }
+        const QString hash = QString::fromLatin1(QCryptographicHash::hash(identity.toUtf8(), QCryptographicHash::Sha256).toHex());
+        const QString folder = recovery + '/' + hash;
+        const QString latest = folder + "/latest.json";
+        QFile file(latest); QVERIFY(file.open(QIODevice::ReadOnly));
+        auto snapshot = QJsonDocument::fromJson(file.readAll()).object(); file.close();
+        snapshot["source"] = "Damaged source"; write(latest, QJsonDocument(snapshot).toJson());
+        // A valid older immutable version must still be offered and recoverable.
+        Deck recovered; recovered.enableGuiSession(); recovered.enableAutosave(recovery);
+        QCOMPARE(recovered.unfinishedDrafts().size(), 1); QVERIFY(recovered.openDraft(identity));
+        QCOMPARE(recovered.slideText(), QString("# Preserved draft"));
+        QVERIFY(recovered.showHome());
+        // Legacy unnamed snapshots keep their identity and history without deleting files.
+        QVERIFY(file.open(QIODevice::ReadOnly)); snapshot = QJsonDocument::fromJson(file.readAll()).object(); file.close();
+        snapshot.remove("draftId");
+        const QString legacyHash = QString::fromLatin1(QCryptographicHash::hash("untitled", QCryptographicHash::Sha256).toHex());
+        const QString legacy = recovery + '/' + legacyHash;
+        QVERIFY(QDir().mkpath(legacy)); write(legacy + "/latest.json", QJsonDocument(snapshot).toJson());
+        Deck migrated; migrated.enableGuiSession(); migrated.enableAutosave(recovery);
+        QVERIFY(migrated.openDraft("legacy-untitled")); QCOMPARE(migrated.slideText(), QString("# Preserved draft"));
+        QVERIFY(migrated.savePath(files.filePath("legacy.md"))); QVERIFY(QFile::exists(legacy + "/latest.json"));
+        QVERIFY(QDir(folder + "/versions").exists());
+    }
+    void startupModeKeepsNewHeadlineFocused() {
+        if (!qEnvironmentVariableIsSet("HYPE_GUI_TESTS")) QSKIP("Set HYPE_GUI_TESTS=1");
+        HomeSession session("# Template\n"); QVERIFY(session.window);
+        QTemporaryDir files;
+        session.deck.enableGuiSession(); session.deck.enableAutosave(files.filePath("recovery")); session.deck.newDeck();
+        // Invoke the exact startup path used by main after loading the window.
+        QVERIFY(QMetaObject::invokeMethod(session.window, "initializeEditor", Q_ARG(QVariant, "visual")));
+        QTest::qWait(80);
+        auto editor = session.window->findChild<QQuickItem *>("slideEditor"); QVERIFY(editor); QVERIFY(editor->hasActiveFocus());
+        QCOMPARE(editor->property("selectedText").toString(), QString("Your next idea"));
+        QKeyEvent event(QEvent::KeyPress, 0, Qt::NoModifier, "StartupCheck"); QCoreApplication::sendEvent(session.window, &event);
+        QCOMPARE(session.deck.slideText(), QString("# StartupCheck"));
+        QVERIFY(QMetaObject::invokeMethod(session.window, "initializeEditor", Q_ARG(QVariant, "markdown")));
+        QTest::qWait(40); auto source = session.window->findChild<QQuickItem *>("sourceEditor"); QVERIFY(source); QVERIFY(source->hasActiveFocus());
+    }
+    void homeKeyboardAndNewFocus() {
+        if (!qEnvironmentVariableIsSet("HYPE_GUI_TESTS")) QSKIP("Set HYPE_GUI_TESTS=1");
+        HomeSession session("# Template\n"); QVERIFY(session.window);
+        QTemporaryDir files;
+        session.deck.enableGuiSession(); session.deck.enableAutosave(files.filePath("recovery"));
+        QVERIFY(session.deck.showHome()); QTest::qWait(80);
+        auto home = session.window->findChild<QQuickItem *>("homePage"); QVERIFY(home); QVERIFY(home->isVisible());
+        QTest::keyClick(session.window, Qt::Key_N, Qt::ControlModifier); QTest::qWait(80);
+        QVERIFY(!session.deck.home()); QVERIFY(!home->isVisible()); QCOMPARE(session.deck.count(), 1);
+        auto editor = session.window->findChild<QQuickItem *>("slideEditor"); QVERIFY(editor); QVERIFY(editor->hasActiveFocus());
+        for (const auto &letter : QString("My idea")) { QKeyEvent event(QEvent::KeyPress, 0, Qt::NoModifier, QString(letter)); QCoreApplication::sendEvent(session.window, &event); }
+        QVERIFY(session.deck.slideText().contains("My idea"));
+        QTest::keyClick(session.window, Qt::Key_H, Qt::ControlModifier | Qt::ShiftModifier); QTest::qWait(80);
+        QVERIFY(session.deck.home()); QCOMPARE(session.deck.unfinishedDrafts().size(), 1);
+        session.deck.resumeActive(); QCOMPARE(session.deck.slideText(), QString("# My idea"));
     }
     void autosaveAndVersionHistory() {
         QTemporaryDir files;
@@ -574,7 +699,7 @@ static void write(const QString &path, const QString &content) {
         const auto folders = root.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         QCOMPARE(folders.size(), 1);
         QVERIFY(QFile::remove(root.filePath(folders.first() + "/latest.json")));
-        Deck restored; restored.enableAutosave(recovery);
+        Deck restored; QVERIFY(!restored.reopenLastPresentation()); restored.enableAutosave(recovery);
         QCOMPARE(restored.source(), "# No final newline\n---");
         QCOMPARE(restored.count(), 2);
         QVERIFY(restored.status() != "Could not read the recovery draft. Earlier versions are available in History.");
@@ -584,7 +709,8 @@ static void write(const QString &path, const QString &content) {
         QCOMPARE(restored.source(), blank); // Undo never crosses into another presentation.
         Deck latest; latest.enableAutosave(recovery);
         QCOMPARE(latest.source(), blank);
-        QVERIFY(latest.recoveryVersions().size() >= 3); // Previous untitled work is still recoverable.
+        QCOMPARE(latest.recoveryVersions().size(), 0); // A fresh template gets a new identity.
+        QVERIFY(restored.unfinishedDrafts().size() >= 1); // Previous work remains independently recoverable.
     }
     void historyPopupProtectsSlides() {
         if (!qEnvironmentVariableIsSet("HYPE_GUI_TESTS")) QSKIP("Set HYPE_GUI_TESTS=1");

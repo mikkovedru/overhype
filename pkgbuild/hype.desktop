@@ -2,7 +2,17 @@
 Type=Application
 Name=Hype
 Comment=Markdown presentations
-Exec=hype open %f
+Exec=hype %f
 Icon=hype
 Terminal=false
 Categories=Office;Presentation;
+MimeType=text/markdown;text/x-markdown;
+Actions=New;Open;
+
+[Desktop Action New]
+Name=New presentation
+Exec=hype --new
+
+[Desktop Action Open]
+Name=Open presentation
+Exec=hype --open-dialog

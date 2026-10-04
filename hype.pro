@@ -1,4 +1,4 @@
-QT += core gui qml quick quickcontrols2 multimedia concurrent dbus
+QT += core network gui qml quick quickcontrols2 multimedia concurrent dbus
 # Like Qt's own modules, Hype never throws or catches. Without unwinding tables and with
 # link-time optimization, the installed binary is about a quarter smaller.
 CONFIG += c++17 release ltcg exceptions_off
@@ -26,3 +26,5 @@ HEADERS += src/filedialog.h
 SOURCES += src/recovery.cpp
 SOURCES += src/cli.cpp
 HEADERS += src/cli.h
+
+SOURCES += src/home.cpp

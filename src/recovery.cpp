@@ -24,9 +24,10 @@ bool writeAtomically(const QString &path, const QByteArray &bytes) {
 }
 
 QString Deck::recoveryFolder() const {
-    return m_recoveryDirectory + '/' + digest((m_path.isEmpty() ? QString("untitled") : m_path).toUtf8());
+    return m_recoveryDirectory + '/' + digest((m_path.isEmpty() ? (m_draftId == "legacy-untitled" ? QString("untitled") : m_draftId) : m_path).toUtf8());
 }
-void Deck::enableAutosave(const QString &directory) {
+void Deck::enableAutosave(const QString &directory, bool readOnly) {
+    m_readOnlyRecovery = readOnly;
     if (!m_recoveryDirectory.isEmpty()) return;
     m_recoveryDirectory = directory.isEmpty()
         ? QStandardPaths::writableLocation(QStandardPaths::StateLocation) + "/recovery" : directory;
@@ -37,22 +38,25 @@ void Deck::enableAutosave(const QString &directory) {
     connect(&m_autosaveTimer, &QTimer::timeout, this, &Deck::flushAutosave);
     connect(&m_autosaveDeadline, &QTimer::timeout, this, &Deck::flushAutosave);
     connect(this, &Deck::changed, this, [this] {
-        if (m_recovering || (m_source == m_checkpointSource && m_path == m_checkpointPath)) return;
+        if (m_readOnlyRecovery || m_home || m_recovering || (m_source == m_checkpointSource && m_path == m_checkpointPath)) return;
         m_autosaveTimer.start();
         if (!m_autosaveDeadline.isActive()) m_autosaveDeadline.start();
     });
-    recoverDraft();
+    if (!m_home) recoverDraft();
     checkpoint();
-    if (dirty() && !m_path.isEmpty() && !m_externalChange) m_autosaveTimer.start();
+    if (!m_readOnlyRecovery && dirty() && !m_path.isEmpty() && !m_externalChange) m_autosaveTimer.start();
 }
 bool Deck::checkpoint() {
+    if (m_home || m_readOnlyRecovery) return true;
     if (m_recoveryDirectory.isEmpty()) return false;
+    // A pristine unnamed template has no work to recover.
+    if (m_path.isEmpty() && !dirty() && m_checkpointSource.isEmpty()) return true;
     const QString folder = recoveryFolder();
     QJsonArray slides;
     for (const auto &slide : m_parsed.slides)
         slides.append(QJsonObject{{"start", slide.start}, {"end", slide.end}});
     const QByteArray bytes = QJsonDocument(QJsonObject{
-        {"version", 1}, {"path", m_path}, {"source", m_source}, {"saved", m_saved},
+        {"version", 1}, {"draftId", m_draftId}, {"path", m_path}, {"source", m_source}, {"saved", m_saved},
         {"sha256", digest(m_source.toUtf8())}, {"header", m_parsed.header}, {"slides", slides},
         {"selected", m_selected}, {"anchor", m_anchor}, {"conflict", m_externalChange},
         {"timestamp", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)}}).toJson();
@@ -81,10 +85,13 @@ bool Deck::checkpoint() {
     m_checkpointPath = m_path;
     QSettings settings(QSettings::IniFormat, QSettings::UserScope, "hype", "hype");
     settings.setValue("files/lastRecoveryDocument", m_path);
+    settings.setValue("files/lastDraftId", m_draftId);
     settings.sync();
+    m_homeDraftsValid = false;
     return true;
 }
 bool Deck::flushAutosave() {
+    if (m_home || m_readOnlyRecovery) return true;
     m_autosaveTimer.stop();
     m_autosaveDeadline.stop();
     if (!checkpoint()) return false;
@@ -97,13 +104,14 @@ bool Deck::flushAutosave() {
         else if (!m_externalChange) {
             savePath(m_path);
         } else setStatus("Draft backed up · file changed outside Hype; use Save As to keep both");
-    } else if (m_path.isEmpty()) setStatus("Draft backed up · Ctrl+S to choose a file");
+    } else if (m_path.isEmpty() && (dirty() || !m_checkpointSource.isEmpty())) setStatus("Draft backed up · Ctrl+S to choose a file");
     return true; // A recoverable draft is sufficient to close, even if the file cannot be saved.
 }
 bool Deck::restoreSnapshot(const QByteArray &bytes, bool opening) {
     const auto snapshot = QJsonDocument::fromJson(bytes).object();
     if (snapshot["version"].toInt() != 1 || !snapshot["source"].isString() ||
-        snapshot["path"].toString() != m_path || !snapshot["saved"].isString()) return false;
+        snapshot["path"].toString() != m_path || !snapshot["saved"].isString() ||
+        (m_path.isEmpty() && snapshot.contains("draftId") && snapshot["draftId"].toString() != m_draftId)) return false;
     const QString source = snapshot["source"].toString();
     if (digest(source.toUtf8()) != snapshot["sha256"].toString()) return false;
     ParsedDeck parsed;

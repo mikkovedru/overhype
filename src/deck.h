@@ -26,6 +26,14 @@ QString setScalar(QString header, const QString &key, const QString &value);
 
 class Deck : public QAbstractListModel {
     Q_OBJECT
+    Q_PROPERTY(QString editorMode READ editorMode NOTIFY homeChanged)
+    Q_PROPERTY(bool hasActive READ hasActive NOTIFY homeChanged)
+    Q_PROPERTY(bool home READ home NOTIFY homeChanged)
+    Q_PROPERTY(QVariantList recentPresentations READ recentPresentations NOTIFY homeChanged)
+    Q_PROPERTY(QVariantList unfinishedDrafts READ unfinishedDrafts NOTIFY homeChanged)
+    Q_PROPERTY(QVariantMap continuation READ continuation NOTIFY homeChanged)
+    Q_PROPERTY(bool continueOnStartup READ continueOnStartup WRITE setContinueOnStartup NOTIFY homeChanged)
+    Q_PROPERTY(bool rememberRecents READ rememberRecents WRITE setRememberRecents NOTIFY homeChanged)
     Q_PROPERTY(QString source READ source NOTIFY changed)
     Q_PROPERTY(QString slideSource READ slideSource NOTIFY changed)
     Q_PROPERTY(QString slideText READ slideText NOTIFY changed)
@@ -96,11 +104,34 @@ class Deck : public QAbstractListModel {
     QString baseDir() const;
     QString dialogDirectory() const;
     QString slide(int index) const;
+    bool home() const { return m_home; }
+    bool hasActive() const { return m_hasActive; }
+    Q_INVOKABLE void resumeActive();
+    void enableGuiSession(bool persistent = true) { m_guiSession = persistent; m_guiContext = true; m_home = true; }
+    Q_INVOKABLE bool showHome();
+    Q_INVOKABLE bool openPresentation(const QString &path);
+    Q_INVOKABLE bool openDroppedPresentation(const QUrl &url);
+    Q_INVOKABLE bool continuePresentation();
+    bool resumeLastGui();
+    QString editorMode() const;
+    Q_INVOKABLE void rememberEditorMode(const QString &mode);
+    Q_INVOKABLE bool openDraft(const QString &identity, const QString &path = {});
+    Q_INVOKABLE void removeRecent(const QString &path);
+    Q_INVOKABLE void clearRecents();
+    Q_INVOKABLE void locateRecent(const QString &path);
+    QVariantList recentPresentations() const;
+    QVariantList unfinishedDrafts() const;
+    QVariantMap continuation() const;
+    bool continueOnStartup() const;
+    void setContinueOnStartup(bool value);
+    bool rememberRecents() const;
+    void setRememberRecents(bool value);
+    QString draftIdentity() const { return m_draftId; }
     bool loadPath(const QString &path, bool remember = true);
     bool reopenLastPresentation();
     bool savePath(const QString &path);
     bool saveCopyPath(const QString &path);
-    void enableAutosave(const QString &recoveryDirectory = {});
+    void enableAutosave(const QString &recoveryDirectory = {}, bool readOnly = false);
     Q_INVOKABLE bool flushAutosave();
     Q_INVOKABLE QVariantList recoveryVersions() const;
     Q_INVOKABLE bool restoreVersion(const QString &name);
@@ -139,6 +170,7 @@ class Deck : public QAbstractListModel {
     Q_INVOKABLE void setMediaMode(const QString &mode);
     Q_INVOKABLE void setStatus(const QString &status);
   signals:
+    void homeChanged();
     void changed();
     void statusChanged();
     void opened(bool existing);
@@ -176,9 +208,15 @@ class Deck : public QAbstractListModel {
     QFileSystemWatcher m_watcher;
     QTimer m_reloadTimer;
     bool m_externalChange = false;
+    bool m_home = false, m_guiSession = false, m_guiContext = false, m_hasActive = false, m_rememberFile = true;
+    QString m_draftId;
+    mutable bool m_homeDraftsValid = false;
+    mutable QVariantList m_homeDrafts;
+    void recordRecent(bool opened = true);
+    QString stateDirectory() const;
     QString m_recoveryDirectory, m_checkpointSource, m_checkpointPath;
     QTimer m_autosaveTimer, m_autosaveDeadline;
-    bool m_recovering = false;
+    bool m_recovering = false, m_readOnlyRecovery = false;
     bool m_compressingImage = false;
     quint64 m_pasteGeneration = 0;
     bool m_exporting = false, m_exportFailed = false;

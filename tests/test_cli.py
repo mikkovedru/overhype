@@ -127,8 +127,8 @@ class CliTests(unittest.TestCase):
         self.assertIn('hype check', self.hype('help', 'format').stdout)
         self.assertIn('--slide', self.hype('help', 'render').stdout)
         self.assertIn('help format', self.hype('help').stdout)
-        self.assertEqual(self.hype().stdout, self.hype('help').stdout)
-        self.assertIn('open [presentation]', self.hype().stdout)
+        self.assertIn('graphical display', self.hype(code=1).stderr)
+        self.assertIn('open [presentation]', self.hype('help').stdout)
         self.assertIn('help format', self.hype('--help').stdout)
 
     def test_skill_prints_and_installs_for_agents(self):
