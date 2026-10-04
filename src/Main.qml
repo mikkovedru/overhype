@@ -57,6 +57,7 @@ ApplicationWindow {
     property var compressionReturnFocus: null
     property bool allowClose: false
     property int lastSelected: -1
+    property int sourceSelectionBeforeTab: -1
     property int dragIndex: -1
     property int dropIndex: -1
     property real dragY: 0
@@ -86,8 +87,14 @@ ApplicationWindow {
         event.accepted = true
     }
     function switchEditingFocus() {
-        if (slideEditor.activeFocus || sourceEditor.activeFocus) thumbnails.forceActiveFocus()
-        else if (markdown) revealSource(false, sourceFlick.contentY)
+        if (sourceEditor.activeFocus) {
+            sourceSelectionBeforeTab = deck.selected
+            thumbnails.forceActiveFocus()
+        } else if (slideEditor.activeFocus) thumbnails.forceActiveFocus()
+        else if (markdown) {
+            if (deck.selected === sourceSelectionBeforeTab) sourceEditor.forceActiveFocus()
+            else revealSource(false, sourceFlick.contentY, true, 0, true)
+        }
         else slideEditor.forceActiveFocus()
     }
     function editorKey(editor, flick, event) {
@@ -205,7 +212,7 @@ ApplicationWindow {
         else slideEditor.forceActiveFocus()
     }
     function alignSource(focus = true, navigationDelta = 0) { revealSource(true, sourceFlick.contentY, focus, navigationDelta) }
-    function revealSource(atTop, previousY, focus = true, navigationDelta = 0) {
+    function revealSource(atTop, previousY, focus = true, navigationDelta = 0, skipLeadingBlankLine = false) {
         let start = deck.sourcePosition()
         let cursor = start
         let scrollPosition = start
@@ -224,6 +231,11 @@ ApplicationWindow {
                 scrollPosition = sourceEditor.text.lastIndexOf("\n", start - 2) + 1
             if (sourceEditor.text.slice(scrollPosition, scrollPosition + 3) === "---")
                 ++scrollPosition
+        }
+        if (skipLeadingBlankLine && !navigationDelta) {
+            const end = sourceEditor.text.indexOf("\n", start)
+            if (end >= 0 && sourceEditor.text.slice(start, end).trim() === "") cursor = end + 1
+            scrollPosition = cursor
         }
         syncingEditor = true
         sourceEditor.cursorPosition = cursor
@@ -879,7 +891,7 @@ ApplicationWindow {
                 ["? / F1", "Show these shortcuts"] ] },
             { title: "Slides", keys: [
                 ["Arrows", "Previous or next slide, by row in Overview"], ["Page Up / Page Down", "Jump five slides, or five rows in Overview"],
-              ["Home / End", "First or last slide when focused in Slides list"], ["Shift+Arrows", "Extend the selection"],
+                ["Home / End", "First or last slide when focused in Slides list"], ["Shift+Arrows", "Extend the selection"],
                 ["Ctrl+Arrows", "Move selected slides when slides focused"], ["Ctrl+Page Up / Page Down", "Move selected slides five places"],
                 ["Ctrl+Home / End", "Move selected slides to first or last"], ["Ctrl+Enter", "Add a slide"],
                 ["Ctrl+Up / Down", "Navigate slides while typing"], ["Ctrl+PgUp / PgDown", "Jump five slides while typing"],
